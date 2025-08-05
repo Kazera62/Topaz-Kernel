@@ -196,7 +196,7 @@ jobs:
         run: |
           mkdir -p ${{ env.OUT_DIR }}
           
-          export KBUILD_BUILD_USER="belowzeroiq"
+          export KBUILD_BUILD_USER="kazeraXzera"
           export KBUILD_BUILD_HOST="GitHub"
           
           # Make defconfig
