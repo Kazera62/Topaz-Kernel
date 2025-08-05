@@ -61,7 +61,7 @@ config MQ_IOSCHED_SSG_CGROUP
 
 choice
 	prompt "Default mq I/O scheduler"
-	default MQ_DEADLINE_DEFAULT
+	default MQ_SSG_DEFAULT
 	help
 	  Select the I/O scheduler which will be used by default.
 
