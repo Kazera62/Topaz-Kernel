@@ -13,12 +13,12 @@ on:
         description: "Kernel source URL"
         required: true
         type: string
-        default: "https://github.com/topnotchfreaks/kernel_msm-5.15"
+        default: "https://github.com/Kazera62/Topaz-Kernel.git"
       kernelBranch:
         description: "Kernel branch"
         required: false
         type: string
-        default: "codelinaro"
+        default: "kernel-topaz"
       kernelDevice:
         description: "Device (used for defconfig)"
         required: true
@@ -28,7 +28,7 @@ on:
         description: "Custom localversion name (e.g., -mybuild)"
         required: false
         type: string
-        default: ""
+        default: "KazeraXzera"
       buildKSU:
         description: "Build KSU variant?"
         required: false
@@ -243,7 +243,7 @@ jobs:
 
       - name: "📦 Create flashable ZIP"
         run: |
-          git clone --depth=1 https://github.com/topnotchfreaks/AnyKernel3 -b master AnyKernel3
+          git clone --depth=1 https://github.com/Kazera62/AnyKernel3.git -b master AnyKernel3
           
           # Copy kernels
           find kernels -name "Image.*" -exec cp {} AnyKernel3/ \;
