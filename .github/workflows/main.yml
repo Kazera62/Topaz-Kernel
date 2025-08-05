@@ -1,0 +1,279 @@
+name: "Build kernels"
+
+env:
+  OUT_DIR: "out"
+  KERNEL_VERSION: "5.15"
+  ANDROID_VERSION: "13"
+  SUSFS_BRANCH: "gki-android13-5.15"
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernelSourceURL:
+        description: "Kernel source URL"
+        required: true
+        type: string
+        default: "https://github.com/topnotchfreaks/kernel_msm-5.15"
+      kernelBranch:
+        description: "Kernel branch"
+        required: false
+        type: string
+        default: "codelinaro"
+      kernelDevice:
+        description: "Device (used for defconfig)"
+        required: true
+        type: string
+        default: "gki"
+      localVersion:
+        description: "Custom localversion name (e.g., -mybuild)"
+        required: false
+        type: string
+        default: ""
+      buildKSU:
+        description: "Build KSU variant?"
+        required: false
+        type: boolean
+        default: true
+      ltoMode:
+        description: "Choose LTO mode"
+        required: true
+        default: "Thin"
+        type: choice
+        options:
+          - "Thin"
+          - "Full"
+
+jobs:
+  Build-Kernel:
+    name: "🚀 Build Kernel"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant: ${{ fromJSON(inputs.buildKSU == true && '["noksu", "ksu"]' || '["noksu"]') }}
+    env:
+      kernelDir: common_${{ github.event.inputs.kernelDevice }}
+      kernelName: common
+      DEFCONFIG_NAME: ${{ github.event.inputs.kernelDevice }}_defconfig
+
+    steps:
+      - name: "✨ Setup workspace"
+        run: |
+          mkdir -p $kernelDir
+          echo "BUILD_TIME=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential bc curl flex cpio git zip libelf-dev gcc-aarch64-linux-gnu libssl-dev clang lld llvm aria2 dwarves
+
+      - name: "🌟 Clone kernel source"
+        working-directory: ./${{ env.kernelDir }}
+        run: |
+          git clone --recursive --branch ${{ github.event.inputs.kernelBranch }} \
+            ${{ github.event.inputs.kernelSourceURL }} ${{ env.kernelName }} --depth=1
+
+      - name: "💫 Get Clang Toolchain"
+        run: |
+          clang_url=$(curl -sL "https://api.github.com/repos/topnotchfreaks/clang/releases/latest" | \
+                     grep "browser_download_url.*tar.gz" | cut -d '"' -f 4 | head -n 1)
+          
+          if [ -z "$clang_url" ]; then
+            echo "Error: Could not find Clang download URL"
+            exit 1
+          fi
+          
+          mkdir -p clang
+          echo "🚀 Downloading Clang with aria2c..."
+          aria2c -x 16 -s 16 -k 1M --allow-overwrite=true --auto-file-renaming=false \
+            "$clang_url" -o clang.tar.gz
+          
+          tar -xz -C clang --strip-components=1 -f clang.tar.gz
+          rm -rf clang.tar.gz
+          
+          CLANG_PATH="${{ github.workspace }}/clang/bin"
+          echo "CLANG_PATH=$CLANG_PATH" >> $GITHUB_ENV
+          echo "$CLANG_PATH" >> $GITHUB_PATH
+
+      - name: "📐 Setup build environment"
+        run: |
+          # Setup swap based on LTO mode
+          if [ "${{ github.event.inputs.ltoMode }}" = "Full" ]; then
+            SWAP_SIZE=20G
+          else
+            SWAP_SIZE=8G
+          fi
+          sudo fallocate -l $SWAP_SIZE /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          echo "vm.swappiness=60" | sudo tee -a /etc/sysctl.conf
+          sudo sysctl -p
+
+      - name: "⚙️ Configure kernel"
+        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
+        run: |
+          # Set localversion
+          if [ -n "${{ github.event.inputs.localVersion }}" ]; then
+            echo "CONFIG_LOCALVERSION=\"${{ github.event.inputs.localVersion }}\"" >> arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
+          fi
+          
+          # Set LTO mode
+          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+          if [ "${{ github.event.inputs.ltoMode }}" = "Full" ]; then
+            sed -i 's/CONFIG_LTO_CLANG_THIN=y/CONFIG_LTO_CLANG_FULL=y/' "$CONFIG_FILE"
+            sed -i 's/CONFIG_LTO_NONE=y/CONFIG_LTO_CLANG_FULL=y/' "$CONFIG_FILE"
+          else
+            sed -i 's/CONFIG_LTO_CLANG_FULL=y/CONFIG_LTO_CLANG_THIN=y/' "$CONFIG_FILE"
+            sed -i 's/CONFIG_LTO_NONE=y/CONFIG_LTO_CLANG_THIN=y/' "$CONFIG_FILE"
+          fi
+          echo "✅ LTO configs updated"
+          
+          # Basic optimizations
+          echo "CONFIG_KALLSYMS=y" >> "$CONFIG_FILE"
+
+      - name: "🛠 Apply kernel patches"
+        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
+        run: |
+          # Apply LineageOS disguise patch
+          curl -L -o lineage.patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-fs-lineageos-disguise.patch"
+          patch -p1 < lineage.patch || echo "Warning: Some hunks failed"
+          
+          # Apply Clang 21+ compatibility if needed
+          CLANG_VERSION=$($CLANG_PATH/clang --version | head -n 1 | grep -oP '\d+' | head -n 1)
+          if [ "$CLANG_VERSION" -ge 21 ]; then
+            curl -L -o clang21.patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-treewide-clang-compilation-fixup.patch"
+            patch -p1 < clang21.patch || echo "Warning: Some hunks failed"
+            echo 'KBUILD_CFLAGS += -Wno-default-const-init-unsafe -Wno-strict-prototypes' >> Makefile
+          fi
+
+      - name: "🔧 Setup KernelSU (KSU variant only)"
+        if: matrix.variant == 'ksu'
+        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
+        run: |
+          rm -rf ./KernelSU ./drivers/kernelsu
+          
+          # Install KernelSU with SUSFS
+          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-main
+          
+          # Apply SUSFS patch
+          PATCH_URL="https://api.github.com/repos/topnotchfreaks/kernel_patches/releases/latest"
+          SUSFS_PATCH=$(curl -s "$PATCH_URL" | grep "browser_download_url.*0001-Implement-SUSFS.*Android-13.*Kernel-5.15.*patch" | cut -d '"' -f 4 | head -n 1)
+          
+          if [ -n "$SUSFS_PATCH" ]; then
+            curl -L -o susfs.patch "$SUSFS_PATCH"
+            patch -p1 < susfs.patch || echo "Warning: SUSFS patch failed"
+          fi
+          
+          # Apply syscall hooks
+          curl -L -o hooks.patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-SUSFS-syscall-hooks.patch"
+          patch -p1 < hooks.patch || echo "Warning: Syscall hooks failed"
+          
+          # Add KSU configs
+          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+          cat >> "$CONFIG_FILE" << 'EOF'
+          CONFIG_KSU=y
+          CONFIG_KSU_MANUAL_HOOK=y
+          CONFIG_KPM=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_SU=n
+          CONFIG_TMPFS_XATTR=y
+          CONFIG_TMPFS_POSIX_ACL=y
+          EOF
+
+      - name: "🔨 Build kernel"
+        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
+        run: |
+          mkdir -p ${{ env.OUT_DIR }}
+          
+          export KBUILD_BUILD_USER="belowzeroiq"
+          export KBUILD_BUILD_HOST="GitHub"
+          
+          # Make defconfig
+          make O=${{ env.OUT_DIR }} ARCH=arm64 LLVM=1 ${{ env.DEFCONFIG_NAME }}
+          
+          # Build kernel
+          make O=${{ env.OUT_DIR }} \
+            ARCH=arm64 \
+            LLVM=1 \
+            LTO=${{ github.event.inputs.ltoMode == 'Full' && 'full' || 'thin' }} \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            -j$(nproc)
+
+      - name: "🩹 Apply KPM patch (KSU variant only)"
+        if: matrix.variant == 'ksu'
+        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/arm64/boot
+        run: |
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
+          chmod +x patch
+          ./patch
+          mv oImage Image
+
+      - name: "📦 Prepare artifact"
+        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
+        run: |
+          cp ${{ env.OUT_DIR }}/arch/arm64/boot/Image ../Image.${{ matrix.variant }}
+
+      - name: "📤 Upload kernel"
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ matrix.variant }}
+          path: ${{ env.kernelDir }}/Image.${{ matrix.variant }}
+          retention-days: 3
+
+  Package-Kernels:
+    name: "📦 Package kernels"
+    runs-on: ubuntu-latest
+    needs: Build-Kernel
+    steps:
+      - name: "📥 Download artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          path: ./kernels/
+
+      - name: "📦 Create flashable ZIP"
+        run: |
+          git clone --depth=1 https://github.com/topnotchfreaks/AnyKernel3 -b master AnyKernel3
+          
+          # Copy kernels
+          find kernels -name "Image.*" -exec cp {} AnyKernel3/ \;
+          
+          # Create ZIP
+          BUILD_TIME=$(date +'%Y-%m-%d')
+          ZIP_NAME="Anykernel3_${{ github.event.inputs.kernelBranch }}_${BUILD_TIME}.zip"
+          cd AnyKernel3
+          zip -r9 "../$ZIP_NAME" * -x .git/*
+          cd ..
+          echo "ZIP_PATH=$(pwd)/$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: "📤 Upload final package"
+        uses: actions/upload-artifact@v4
+        with:
+          name: Anykernel3_${{ github.event.inputs.kernelBranch }}_${{ env.BUILD_TIME }}.zip
+          path: ${{ env.ZIP_PATH }}
+          retention-days: 7
+
+      - name: "📱 Send to Telegram"
+        if: always()
+        run: |
+          if [[ -f "${{ env.ZIP_PATH }}" ]]; then
+            curl -s -F document=@"${{ env.ZIP_PATH }}" \
+                 -F caption="✅ Kernel Build Complete - $(date '+%Y-%m-%d %H:%M:%S')" \
+                 -F chat_id=${{ secrets.TELEGRAM_USER_ID }} \
+                 "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument"
+          else
+            curl -s -X POST \
+                 -d chat_id=${{ secrets.TELEGRAM_USER_ID }} \
+                 -d text="❌ Kernel build failed" \
+                 "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage"
+          fi
