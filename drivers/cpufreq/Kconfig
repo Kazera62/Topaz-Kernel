@@ -123,6 +123,12 @@ config CPU_FREQ_DEFAULT_GOV_SCHEDHORIZON
 	  have a look at the help section of that governor. The fallback
 	  governor will be 'performance'.
 
+config CPU_FREQ_DEFAULT_GOV_AGGRESSIVE_GAMING
+       bool "aggressive_gaming"
+       select CPU_FREQ_GOV_AGGRESSIVE_GAMING
+       help
+         Jadikan governor aggressive gaming sebagai default.
+
 endchoice
 
 config CPU_FREQ_GOV_PERFORMANCE
@@ -244,6 +250,12 @@ config CPU_FREQ_GOV_SCHEDHORIZON
           to 1401mhz.
 
 	  If in doubt, say N.
+
+config CPU_FREQ_GOV_AGGRESSIVE_GAMING
+       tristate "'aggressive_gaming' cpufreq governor"
+       depends on CPU_FREQ
+       help
+         Governor sangat agresif untuk gaming, paksa semua CPU di frekuensi maksimal setiap saat.
 
 config CPUFREQ_DT
 	tristate "Generic DT based cpufreq driver"
