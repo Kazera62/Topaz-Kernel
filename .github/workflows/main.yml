@@ -23,7 +23,7 @@ on:
         description: "Device (used for defconfig)"
         required: true
         type: string
-        default: "gki"
+        default: "topaz"
       localVersion:
         description: "Custom localversion name (e.g., -mybuild)"
         required: false
