@@ -26,7 +26,6 @@ bfq-y				:= bfq-iosched.o bfq-wf2q.o bfq-cgroup.o
 obj-$(CONFIG_IOSCHED_BFQ)	+= bfq.o
 obj-$(CONFIG_IOSCHED_MAPLE) += maple-iosched.o
 
-
 ssg-$(CONFIG_MQ_IOSCHED_SSG)	:= ssg-iosched.o
 ssg-$(CONFIG_MQ_IOSCHED_SSG_CGROUP)	+= ssg-cgroup.o
 obj-$(CONFIG_MQ_IOSCHED_SSG)	+= ssg.o
