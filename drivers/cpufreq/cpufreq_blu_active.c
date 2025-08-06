@@ -2,7 +2,6 @@
 #include <linux/cpufreq.h>
 #include <linux/module.h>
 #include <linux/init.h>
-#include "cpufreq_blu_active.h"
 
 static void blu_active_limits(struct cpufreq_policy *policy)
 {
