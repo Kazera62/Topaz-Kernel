@@ -51,13 +51,6 @@ config MQ_IOSCHED_SSG
 	help
 	  SamSung Generic IO scheduler.
 
-config IOSCHED_MAPLE
-    tristate "Maple I/O scheduler"
-    default n
-    help
-      The Maple I/O scheduler is optimized for fast response time
-      and fairness. Designed especially for gaming and general Android use.
-
 config MQ_IOSCHED_SSG_CGROUP
 	tristate "Control Group for SamSung Generic I/O scheduler"
 	default n
