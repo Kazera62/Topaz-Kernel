@@ -28,7 +28,7 @@ on:
         description: "Custom localversion name (e.g., -mybuild)"
         required: false
         type: string
-        default: "KazeraXzera"
+        default: "-KazeraXzera"
       buildKSU:
         description: "Build KSU variant?"
         required: false
@@ -196,7 +196,7 @@ jobs:
         run: |
           mkdir -p ${{ env.OUT_DIR }}
           
-          export KBUILD_BUILD_USER="Kazera62"
+          export KBUILD_BUILD_USER="Kazera"
           export KBUILD_BUILD_HOST="GitHub"
           
           # Make defconfig
