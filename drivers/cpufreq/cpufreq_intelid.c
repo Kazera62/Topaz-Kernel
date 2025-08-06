@@ -2,7 +2,6 @@
 #include <linux/cpufreq.h>
 #include <linux/module.h>
 #include <linux/init.h>
-#include "cpufreq_intelid.h"
 
 static void intelid_limits(struct cpufreq_policy *policy)
 {
