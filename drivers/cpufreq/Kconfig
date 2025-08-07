@@ -123,7 +123,8 @@ config CPU_FREQ_DEFAULT_GOV_SCHEDHORIZON
 	  have a look at the help section of that governor. The fallback
 	  governor will be 'performance'.
 
-config CPU_FREQ_DEFAULT_GOV_BLU_ACTIVE
+config CPU_FREQ_DEFAULT_GOV_BLUdefault
+
        bool "blu_active"
        select CPU_FREQ_GOV_BLU_ACTIVE
        help
@@ -132,6 +133,12 @@ config CPU_FREQ_DEFAULT_GOV_BLU_ACTIVE
 config CPU_FREQ_DEFAULT_GOV_INTELID
        bool "intelid"
        select CPU_FREQ_GOV_INTELID
+       help
+         Jadikan governor sebagai default
+
+config CPU_FREQ_DEFAULT_GOV_GAMERBOOST
+       bool "gamerboost"
+       select CPU_FREQ_GOV_GAMERBOOST
        help
          Jadikan governor sebagai default
 
@@ -269,6 +276,12 @@ config CPU_FREQ_GOV_INTELID
 	help
 	  This governor balances between current and max frequency for smooth
 	  performance without max power usage.
+
+config CPU_FREQ_GOV_GAMERBOOST
+	tristate "'gamerboost' cpufreq governor"
+	help
+	  CPUFreq governor designed for gaming, performance-oriented with
+	  dynamic frequency boosting and simple logic.
 
 config CPUFREQ_DT
 	tristate "Generic DT based cpufreq driver"
