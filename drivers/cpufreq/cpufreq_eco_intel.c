@@ -74,7 +74,6 @@ static struct cpufreq_governor eco_intel_gov = {
 	.owner = THIS_MODULE,
 	.init = eco_intel_start,
 	.exit = eco_intel_stop,
-	.dynamic_switching = true,
 };
 
 static int __init eco_intel_init(void)
