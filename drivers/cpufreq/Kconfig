@@ -278,7 +278,8 @@ config CPU_FREQ_GOV_INTELID
 
 config CPU_FREQ_GOV_GAMERBOOST
 	tristate "'gamerboost' cpufreq governor"
-	help
+	depends on CPU_FREQ
+ help
 	  CPUFreq governor designed for gaming, performance-oriented with
 	  dynamic frequency boosting and simple logic.
 
