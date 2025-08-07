@@ -38,14 +38,14 @@ static void gamerboost_limits(struct cpufreq_policy *policy)
 		target_freq = (policy->cur + policy->max) / 2;
 	}
 
-	pr_debug("gamerboost_extreme: load=%u%%, rt_task=%d, setting freq=%u\n",
+	pr_debug("gamerboost: load=%u%%, rt_task=%d, setting freq=%u\n",
 		 load, rt_task_active, target_freq);
 
 	__cpufreq_driver_target(policy, target_freq, CPUFREQ_RELATION_H);
 }
 
 static struct cpufreq_governor gamerboost_gov = {
-	.name = "gamerboost_extreme",
+	.name = "gamerboost",
 	.owner = THIS_MODULE,
 	.limits = gamerboost_limits,
 	.flags = CPUFREQ_GOV_DYNAMIC_SWITCHING,
@@ -53,19 +53,19 @@ static struct cpufreq_governor gamerboost_gov = {
 
 static int __init gamerboost_init(void)
 {
-	pr_info("GamerBoost Extreme Governor Initialized\n");
+	pr_info("GamerBoost Governor Initialized\n");
 	return cpufreq_register_governor(&gamerboost_gov);
 }
 
 static void __exit gamerboost_exit(void)
 {
 	cpufreq_unregister_governor(&gamerboost_gov);
-	pr_info("GamerBoost Extreme Governor Unloaded\n");
+	pr_info("GamerBoost Governor Unloaded\n");
 }
 
 module_init(gamerboost_init);
 module_exit(gamerboost_exit);
 
 MODULE_AUTHOR("PANđøʀᴀ");
-MODULE_DESCRIPTION("GamerBoost Extreme Governor - Smart + Reactive Gaming");
+MODULE_DESCRIPTION("GamerBoost Governor - Smart + Reactive Gaming");
 MODULE_LICENSE("GPL");
