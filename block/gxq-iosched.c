@@ -66,6 +66,6 @@ static void __exit gxq_exit(void)
 module_init(gxq_init);
 module_exit(gxq_exit);
 
-MODULE_AUTHOR("PANđøʀᴀ & ChatGPT");
+MODULE_AUTHOR("PANđøʀᴀ & zera");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Gaming eXtreme Quick I/O scheduler");
