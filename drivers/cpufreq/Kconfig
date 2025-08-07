@@ -123,8 +123,7 @@ config CPU_FREQ_DEFAULT_GOV_SCHEDHORIZON
 	  have a look at the help section of that governor. The fallback
 	  governor will be 'performance'.
 
-config CPU_FREQ_DEFAULT_GOV_BLUdefault
-
+config CPU_FREQ_DEFAULT_GOV_BLU_ACTIVE
        bool "blu_active"
        select CPU_FREQ_GOV_BLU_ACTIVE
        help
