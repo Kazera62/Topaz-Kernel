@@ -129,9 +129,9 @@ config CPU_FREQ_DEFAULT_GOV_BLU_ACTIVE
        help
          Jadikan governor sebagai default
 
-config CPU_FREQ_DEFAULT_GOV_INTELID
-       bool "intelid"
-       select CPU_FREQ_GOV_INTELID
+config CPU_FREQ_DEFAULT_GOV_ECO_INTEL
+       bool "eco_intel"
+       select CPU_FREQ_GOV_ECO_INTEL
        help
          Jadikan governor sebagai default
 
@@ -269,12 +269,11 @@ config CPU_FREQ_GOV_BLU_ACTIVE
 	help
       This governor responds to real CPU load in a dynamic and responsive way.
 
-config CPU_FREQ_GOV_INTELID
-	tristate "'intelid' cpufreq governor"
+config CPU_FREQ_GOV_ECO_INTEL
+	tristate "'eco_intel' cpufreq governor"
 	depends on CPU_FREQ
 	help
-	  This governor balances between current and max frequency for smooth
-	  performance without max power usage.
+	  Ultra power saving & adaptive CPU governor by PANđØRA.
 
 config CPU_FREQ_GOV_GAMERBOOST
 	tristate "'gamerboost' cpufreq governor"
