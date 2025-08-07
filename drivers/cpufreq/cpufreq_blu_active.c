@@ -1,115 +1,101 @@
 // SPDX-License-Identifier: GPL-2.0
-#include <linux/kernel.h>
-#include <linux/module.h>
 #include <linux/cpufreq.h>
-#include <linux/tick.h>
-#include <linux/sched.h>
+#include <linux/module.h>
+#include <linux/init.h>
+#include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
-#include <linux/kthread.h>
+#include <linux/sched/cputime.h>
 #include <linux/delay.h>
+#include <linux/jiffies.h>
 
-struct blu_policy_data {
+static struct cpufreq_governor eco_intel_gov;
+
+struct eco_intel_cpuinfo {
         struct cpufreq_policy *policy;
-        struct task_struct *thread;
-        bool should_run;
+        struct delayed_work work;
 };
 
-static int blu_thread_fn(void *data)
+static void eco_intel_adjust_freq(struct work_struct *work)
 {
-        struct blu_policy_data *pdata = data;
-        unsigned int cpu = pdata->policy->cpu;
-        u64 cur_idle_time, prev_idle_time = 0;
-        u64 cur_total_time, prev_total_time = 0;
-        unsigned int freq;
+        struct eco_intel_cpuinfo *ci = container_of(work, struct eco_intel_cpuinfo, work.work);
+        struct cpufreq_policy *policy = ci->policy;
+        unsigned int min_freq = policy->min;
+        unsigned int max_freq = policy->max;
+        unsigned int target_freq;
 
-        while (!kthread_should_stop()) {
-                cur_idle_time = get_cpu_idle_time_us(cpu, &cur_total_time);
+        unsigned int load = cpufreq_quick_get(policy->cpu);
+        if (!load)
+                load = min_freq;
 
-                if (cur_total_time != prev_total_time) {
-                        u64 delta_idle = cur_idle_time - prev_idle_time;
-                        u64 delta_total = cur_total_time - prev_total_time;
-                        u64 usage = 100 - (delta_idle * 100 / delta_total);
+        if (load < max_freq / 4)
+                target_freq = min_freq;
+        else if (load < max_freq / 2)
+                target_freq = (min_freq + max_freq) / 4;
+        else
+                target_freq = (min_freq + max_freq) / 2;
 
-                        if (usage > 80)
-                                freq = pdata->policy->max;
-                        else if (usage < 20)
-                                freq = pdata->policy->min;
-                        else
-                                freq = (pdata->policy->max + pdata->policy->min) / 2;
-
-                        cpufreq_driver_target(pdata->policy, freq, CPUFREQ_RELATION_L);
-                        prev_idle_time = cur_idle_time;
-                        prev_total_time = cur_total_time;
-                }
-
-                msleep(50);
-        }
-
-        return 0;
+        cpufreq_driver_target(policy, target_freq, CPUFREQ_RELATION_L);
+        schedule_delayed_work(&ci->work, msecs_to_jiffies(300));
 }
 
-static int blu_init(struct cpufreq_policy *policy)
+static int eco_intel_start(struct cpufreq_policy *policy)
 {
-        struct blu_policy_data *pdata;
+        struct eco_intel_cpuinfo *ci;
 
-        pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
-        if (!pdata)
+        ci = kzalloc(sizeof(*ci), GFP_KERNEL);
+        if (!ci)
                 return -ENOMEM;
 
-        pdata->policy = policy;
-        pdata->should_run = true;
+        ci->policy = policy;
+        policy->governor_data = ci;
 
-        pdata->thread = kthread_run(blu_thread_fn, pdata, "blu_cpu_thread/%u", policy->cpu);
-        if (IS_ERR(pdata->thread)) {
-                kfree(pdata);
-                return PTR_ERR(pdata->thread);
-        }
-
-        policy->governor_data = pdata;
+        INIT_DELAYED_WORK(&ci->work, eco_intel_adjust_freq);
+        schedule_delayed_work(&ci->work, msecs_to_jiffies(300));
         return 0;
 }
 
-static void blu_exit(struct cpufreq_policy *policy)
+static void eco_intel_stop(struct cpufreq_policy *policy)
 {
-        struct blu_policy_data *pdata = policy->governor_data;
+        struct eco_intel_cpuinfo *ci = policy->governor_data;
+        if (!ci)
+                return;
 
-        if (pdata && pdata->thread)
-                kthread_stop(pdata->thread);
-
-        kfree(pdata);
+        cancel_delayed_work_sync(&ci->work);
+        kfree(ci);
 }
 
-static void blu_limits(struct cpufreq_policy *policy)
+static void eco_intel_limits(struct cpufreq_policy *policy)
 {
-        pr_info("blu_active: batas frekuensi berubah, min = %u kHz, max = %u kHz\n",
+        pr_info("eco_intel: limits berubah, min = %u kHz, max = %u kHz\n",
                 policy->min, policy->max);
 
-        // Tambahkan logika validasi atau reset jika perlu di sini
+        // Optional: validasi atau koreksi jika perlu
+        if (policy->min < 300000)
+                policy->min = 300000; // Batas bawah aman
 }
 
-static struct cpufreq_governor blu_active_gov = {
-        .name = "blu_active",
+static struct cpufreq_governor eco_intel_gov = {
+        .name = "eco_intel",
         .owner = THIS_MODULE,
-        .init = blu_init,
-        .exit = blu_exit,
-        .limits = blu_limits,
+        .init = eco_intel_start,
+        .exit = eco_intel_stop,
+        .limits = eco_intel_limits, // <--- DITAMBAHKAN DI SINI
 };
 
-static int __init blu_active_init(void)
+static int __init eco_intel_init(void)
 {
-        return cpufreq_register_governor(&blu_active_gov);
+        return cpufreq_register_governor(&eco_intel_gov);
 }
+module_init(eco_intel_init);
 
-static void __exit blu_active_exit(void)
+static void __exit eco_intel_exit(void)
 {
-        cpufreq_unregister_governor(&blu_active_gov);
+        cpufreq_unregister_governor(&eco_intel_gov);
 }
-
-module_init(blu_active_init);
-module_exit(blu_active_exit);
+module_exit(eco_intel_exit);
 
 MODULE_AUTHOR("PANđøʀᴀ");
-MODULE_DESCRIPTION("blu_active CPUFreq Governor");
+MODULE_DESCRIPTION("eco_intel - ultra power saving CPU governor");
 MODULE_LICENSE("GPL");
