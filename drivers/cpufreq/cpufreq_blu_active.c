@@ -1,112 +1,112 @@
-// SPDX-License-Identifier: GPL-2.0-only
-#include <linux/module.h>
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/kernel.h>
-#include <linux/init.h>
+#include <linux/module.h>
 #include <linux/cpufreq.h>
 #include <linux/tick.h>
 #include <linux/sched.h>
+#include <linux/slab.h>
+#include <linux/mutex.h>
 #include <linux/workqueue.h>
+#include <linux/kthread.h>
 #include <linux/delay.h>
-#include <linux/jiffies.h>
-#include <linux/cpumask.h>
-#include <linux/cpu.h>
 
-#define POLL_INTERVAL_MS 100  // 100ms interval
-#define HIGH_LOAD_THRESHOLD 60  // Load > 60% = naik frekuensi
-#define LOW_LOAD_THRESHOLD 20   // Load < 20% = turun frekuensi
+struct blu_policy_data {
+	struct cpufreq_policy *policy;
+	struct task_struct *thread;
+	bool should_run;
+};
 
-static struct workqueue_struct *blu_wq;
-static struct delayed_work blu_work;
-static struct cpufreq_policy *policy_ptr;
-
-static u64 prev_idle_time = 0, prev_total_time = 0;
-
-static void blu_check_load(struct work_struct *work)
+static int blu_thread_fn(void *data)
 {
-	unsigned int cpu = policy_ptr->cpu;
-	u64 cur_idle_time, cur_total_time;
-	u64 delta_idle, delta_total;
-	unsigned int load;
+	struct blu_policy_data *pdata = data;
+	unsigned int cpu = pdata->policy->cpu;
+	u64 cur_idle_time, prev_idle_time = 0;
+	u64 cur_total_time, prev_total_time = 0;
+	unsigned int freq;
 
-	cur_idle_time = get_cpu_idle_time_us(cpu, &cur_total_time, false);
-	delta_idle = cur_idle_time - prev_idle_time;
-	delta_total = cur_total_time - prev_total_time;
+	while (!kthread_should_stop()) {
+		cur_idle_time = get_cpu_idle_time_us(cpu, &cur_total_time);
 
-	if (delta_total == 0) {
-		goto out;
+		if (cur_total_time != prev_total_time) {
+			u64 delta_idle = cur_idle_time - prev_idle_time;
+			u64 delta_total = cur_total_time - prev_total_time;
+			u64 usage = 100 - (delta_idle * 100 / delta_total);
+
+			if (usage > 80)
+				freq = pdata->policy->max;
+			else if (usage < 20)
+				freq = pdata->policy->min;
+			else
+				freq = (pdata->policy->max + pdata->policy->min) / 2;
+
+			cpufreq_driver_target(pdata->policy, freq, CPUFREQ_RELATION_L);
+			prev_idle_time = cur_idle_time;
+			prev_total_time = cur_total_time;
+		}
+
+		msleep(50);
 	}
 
-	load = 100 * (delta_total - delta_idle) / delta_total;
-
-	pr_debug("blu_active: CPU %u load: %u%%\n", cpu, load);
-
-	if (load > HIGH_LOAD_THRESHOLD && policy_ptr->cur < policy_ptr->max) {
-		cpufreq_driver_target(policy_ptr, policy_ptr->max, CPUFREQ_RELATION_H);
-	} else if (load < LOW_LOAD_THRESHOLD && policy_ptr->cur > policy_ptr->min) {
-		cpufreq_driver_target(policy_ptr, policy_ptr->min, CPUFREQ_RELATION_L);
-	}
-
-out:
-	prev_idle_time = cur_idle_time;
-	prev_total_time = cur_total_time;
-	queue_delayed_work(blu_wq, &blu_work, msecs_to_jiffies(POLL_INTERVAL_MS));
+	return 0;
 }
 
-static int blu_governor_func(struct cpufreq_policy *policy, unsigned int event)
+static int blu_init(struct cpufreq_policy *policy)
 {
-	switch (event) {
-	case CPUFREQ_GOV_START:
-		pr_info("blu_active: Governor started on CPU %u\n", policy->cpu);
-		policy_ptr = policy;
-		prev_idle_time = 0;
-		prev_total_time = 0;
+	struct blu_policy_data *pdata;
 
-		blu_wq = alloc_workqueue("blu_active_wq", WQ_HIGHPRI, 0);
-		if (!blu_wq)
-			return -ENOMEM;
+	pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
+	if (!pdata)
+		return -ENOMEM;
 
-		INIT_DELAYED_WORK(&blu_work, blu_check_load);
-		queue_delayed_work(blu_wq, &blu_work, msecs_to_jiffies(POLL_INTERVAL_MS));
-		break;
+	pdata->policy = policy;
+	pdata->should_run = true;
 
-	case CPUFREQ_GOV_STOP:
-		pr_info("blu_active: Governor stopped\n");
-		cancel_delayed_work_sync(&blu_work);
-		destroy_workqueue(blu_wq);
-		break;
-
-	case CPUFREQ_GOV_LIMITS:
-		if (policy->cur < policy->min)
-			cpufreq_driver_target(policy, policy->min, CPUFREQ_RELATION_L);
-		else if (policy->cur > policy->max)
-			cpufreq_driver_target(policy, policy->max, CPUFREQ_RELATION_H);
-		break;
+	pdata->thread = kthread_run(blu_thread_fn, pdata, "blu_cpu_thread/%u", policy->cpu);
+	if (IS_ERR(pdata->thread)) {
+		kfree(pdata);
+		return PTR_ERR(pdata->thread);
 	}
+
+	policy->governor_data = pdata;
 	return 0;
+}
+
+static void blu_exit(struct cpufreq_policy *policy)
+{
+	struct blu_policy_data *pdata = policy->governor_data;
+
+	if (pdata && pdata->thread)
+		kthread_stop(pdata->thread);
+
+	kfree(pdata);
+}
+
+static void blu_limits(struct cpufreq_policy *policy)
+{
+	// Optional: implement jika ingin merespon perubahan batas frekuensi
 }
 
 static struct cpufreq_governor blu_active_gov = {
 	.name = "blu_active",
-	.governor = blu_governor_func,
 	.owner = THIS_MODULE,
-	.flags = CPUFREQ_GOV_DYNAMIC_SWITCHING,
+	.init = blu_init,
+	.exit = blu_exit,
+	.limits = blu_limits,
 };
 
-static int __init blu_init(void)
+static int __init blu_active_init(void)
 {
-	pr_info("blu_active: Initializing advanced governor\n");
 	return cpufreq_register_governor(&blu_active_gov);
 }
 
-static void __exit blu_exit(void)
+static void __exit blu_active_exit(void)
 {
-	pr_info("blu_active: Exiting advanced governor\n");
 	cpufreq_unregister_governor(&blu_active_gov);
 }
 
-module_init(blu_init);
-module_exit(blu_exit);
+module_init(blu_active_init);
+module_exit(blu_active_exit);
 
 MODULE_AUTHOR("PANđøʀᴀ");
-MODULE_DESCRIPTION("Blu Active Governor v2 - Responsive CPU Load-based Governor");
+MODULE_DESCRIPTION("blu_active CPUFreq Governor");
 MODULE_LICENSE("GPL");
