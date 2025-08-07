@@ -261,8 +261,7 @@ config CPU_FREQ_GOV_BLU_ACTIVE
 	tristate "'blu_active' cpufreq governor"
 	depends on CPU_FREQ
 	help
-	  This governor is a dynamic but lightweight CPUFreq governor that
-	  targets active use scenarios with minimum lag.
+      This governor responds to real CPU load in a dynamic and responsive way.
 
 config CPU_FREQ_GOV_INTELID
 	tristate "'intelid' cpufreq governor"
